@@ -8,7 +8,19 @@ import numpy as np
 from IPython.core.debugger import Tracer
 debug_here = Tracer()
 
+# usage: ioweu.py <name1> <name2> ...
+
 # version 0.2: graph simplification works, minimal input checking/error handling
+HELP_STRING = """\
+    Accepted expressions:
+        'help':  prints this help string
+        'print':  prints out current debts
+        'simplify':  simplifies current debts
+        'd[ebt] <name> owes <name> <amount>'
+        'd[ebt] <name> paid <amount> for <names separated by spaces>':  for splitting
+        'd[ebt] <name> paid <amount> for all'
+        'add <new users separated by spaces>'
+        'clear'"""
 class DebtTracker(object):
 
     def __init__(self, names):
@@ -24,6 +36,7 @@ class DebtTracker(object):
         # a skew-symmetric matrix tracking debts: if debt_graph[i,j] = a, then i
         # owes j $a, and debt_graph[j,i] = -a.
         self.debt_graph = np.zeros([self.N,self.N])
+        print("You can type 'help' (without quotes) at any time for help.")
 
     def add_debts(self, debtors, lender, amount):
         # each debtor in debtor owes exactly amount to lender
@@ -34,19 +47,10 @@ class DebtTracker(object):
         self.debt_graph += added_edges
 
     def print_help(self):
-        usage_string = """\
-        Accepted expressions:
-            'help'
-            'print'
-            'simplify'
-            'd[ebt] <name> owes <name> <amount>'
-            'd[ebt] <name> paid <amount> for <names separated by spaces>'
-            'd[ebt] <name> paid <amount> for all'
-            'add <new users separated by spaces>'"""
-        print(usage_string)
+        print(HELP_STRING)
 
     def _lookup(self, name):
-        """ Returns the index of a particular name. For internal use only """
+        """ For internal use only """
         return self.names.index(name)
 
     def parse_command(self, command):
@@ -107,16 +111,23 @@ class DebtTracker(object):
                 elif amount > 0:
                     (debtor,lender) = (i,j)
                 else:
-                    raise ValueError("serious error: numbers should always be =, >, or < 0")
+                    raise ValueError("serious internal error: numbers should always be =, >, or < 0. maybe you have a nan somewhere?")
                 print("%s owes %s $%0.2f"%(self.names[debtor],self.names[lender],abs(amount)))
 
     def simplify_debts(self):
         # tries to sparsify debt matrix. for example, if A owes B $1 and B owes
         # C $1, then this can be simplified to "A owes C $1".
-        # TODO think about convergence, and how many iterations need to be done
+
+        # in terms of the graph, this makes sure every node is either a source
+        # or a sink. Any 'flow' passing through a node can be rerouted around
+        # it.
+
         for i in xrange(self.N):
             row = self.debt_graph[i,:]
             sign = np.sum(row)
+            # if the flow in is greater than the flow out, then this node is a
+            # sink, and we want to _remove_ all out flows and _keep_ the
+            # remaining in flows. vice versa for source nodes
             if sign >= 0:
                 to_remove = np.flatnonzero(row < 0)
                 to_keep = np.flatnonzero(row > 0)
@@ -126,9 +137,12 @@ class DebtTracker(object):
 
             to_process = [to_remove,to_keep]
 
+            # keep removing until this node is either a source or a sink
             while len(to_process[0]) > 0:
                 (remove_index, keep_index) = zip(*to_process)[0]
                 (removing,keeping) = (row[remove_index], row[keep_index])
+                # between the current 'in' and the current 'out', we want
+                # to remove the smaller of the two
                 if abs(removing) < abs(keeping):
                     amount = removing
                     list_to_shorten = 0
@@ -138,12 +152,15 @@ class DebtTracker(object):
 
                 signed_amount = math.copysign(amount,keeping)
 
+                # removal is accomplished by rerouting: we eliminate the
+                # "two-step" debt and replace it with a "one-step" debt
                 self.add_debts([i], remove_index, signed_amount)
                 self.add_debts([i], keep_index, -signed_amount)
                 self.add_debts([remove_index], keep_index, signed_amount)
 
+                # now that we've eliminated one of this node's
+                # debtors/creditors, we can remove that one from the list
                 to_process[list_to_shorten] = to_process[list_to_shorten][1:]
-        pass
 
 
 def main(names):
