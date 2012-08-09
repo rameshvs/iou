@@ -12,15 +12,16 @@ debug_here = Tracer()
 
 # version 0.2: graph simplification works, minimal input checking/error handling
 HELP_STRING = """\
-    Accepted expressions:
-        'help':  prints this help string
-        'print':  prints out current debts
-        'simplify':  simplifies current debts
-        'd[ebt] <name> owes <name> <amount>'
-        'd[ebt] <name> paid <amount> for <names separated by spaces>':  for splitting
-        'd[ebt] <name> paid <amount> for all'
-        'add <new users separated by spaces>'
-        'clear'"""
+  Accepted expressions:
+    'help':  prints this help string
+    'print':  prints out current debts
+    'simplify':  simplifies current debts
+    'd[ebt] <name> owes <name> <amount>'
+    'd[ebt] <name> paid <amount> for <names separated by spaces>':  for splitting
+    'd[ebt] <name> paid <amount> for all'
+    'add <new users separated by spaces>'
+    'clear'"""
+
 class DebtTracker(object):
 
     def __init__(self, names):
@@ -36,6 +37,16 @@ class DebtTracker(object):
         # a skew-symmetric matrix tracking debts: if debt_graph[i,j] = a, then i
         # owes j $a, and debt_graph[j,i] = -a.
         self.debt_graph = np.zeros([self.N,self.N])
+        self.command_handler = {
+                'print': lambda tokens: self.print_debts(),
+                'help': lambda tokens: self.print_help(),
+                'debug': lambda tokens: debug_here(),
+                'simplify': lambda tokens: self.simplify_debts(),
+                'd': self.handle_debt_command,
+                'debt': self.handle_debt_command,
+                'add': self.handle_add_command,
+                'clear': lambda tokens: self.handle_clear_command()
+                }
         print("You can type 'help' (without quotes) at any time for help.")
 
     def add_debts(self, debtors, lender, amount):
@@ -54,20 +65,10 @@ class DebtTracker(object):
         return self.names.index(name)
 
     def parse_command(self, command):
-        handler = {
-                'print': lambda tokens: self.print_debts(),
-                'help': lambda tokens: self.print_help(),
-                'debug': lambda tokens: debug_here(),
-                'simplify': lambda tokens: self.simplify_debts(),
-                'd': self.handle_debt_command,
-                'debt': self.handle_debt_command,
-                'add': self.handle_add_command,
-                'clear': lambda tokens: self.handle_clear_command()
-                }
         tokens = command.strip().lower().split(' ')
-        if tokens[0] in handler:
-            handler[tokens[0]](tokens)
-        else:
+        try:
+            self.command_handler[tokens[0]](tokens)
+        except KeyError:
             print("** Unknown/unparseable command, please try again")
 
     def handle_debt_command(self, tokens):
@@ -82,6 +83,7 @@ class DebtTracker(object):
                 debtors.remove(self._lookup(lender))
             else:
                 debtors = map(self._lookup, debtors_raw)
+            # add 1 because part of what the lender paid was for himself/herself too
             amount = float(total_amount_string) / (len(debtors) + 1)
             self.add_debts(debtors, self._lookup(lender), amount)
         else:
@@ -115,7 +117,7 @@ class DebtTracker(object):
                 print("%s owes %s $%0.2f"%(self.names[debtor],self.names[lender],abs(amount)))
 
     def simplify_debts(self):
-        # tries to sparsify debt matrix. for example, if A owes B $1 and B owes
+        # tries to sparsify debt graph. for example, if A owes B $1 and B owes
         # C $1, then this can be simplified to "A owes C $1".
 
         # in terms of the graph, this makes sure every node is either a source
@@ -141,9 +143,14 @@ class DebtTracker(object):
             while len(to_process[0]) > 0:
                 (remove_index, keep_index) = zip(*to_process)[0]
                 (removing,keeping) = (row[remove_index], row[keep_index])
+
                 # between the current 'in' and the current 'out', we want
                 # to remove the smaller of the two
-                if abs(removing) < abs(keeping):
+
+                # it's important that the = sign be on the first case, since
+                # otherwise we may unnecessarily stay in the while loop, and
+                # index extraction will fail
+                if abs(removing) <= abs(keeping):
                     amount = removing
                     list_to_shorten = 0
                 else:
