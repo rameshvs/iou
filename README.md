@@ -1,5 +1,5 @@
 # iou
-## A simple command-line program for tracking debts between a group of people
+## A simple command-line program for tracking debts between people
 
 I wrote this to help keep track of who owes what on a group vacation. Here's
 an example:
